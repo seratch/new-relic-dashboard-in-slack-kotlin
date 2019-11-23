@@ -21,6 +21,7 @@ import com.github.seratch.jslack.lightning.AppConfig
 import com.github.seratch.jslack.lightning.util.JsonOps
 import example.database.AppHomeSettings
 import example.database.Database
+import example.database.FileDatabase
 import example.new_relic.insights.NewRelicInsightsApi
 import example.new_relic.insights.QueryResponse
 import example.new_relic.rest.NewRelicRestApi
@@ -68,7 +69,10 @@ class SlackApp {
     fun loadAppConfig(): AppConfig = FileConfigLoader.loadAppConfig()
 
     @Bean
-    fun initApp(appConfig: AppConfig): App {
+    fun database(): Database = FileDatabase()
+
+    @Bean
+    fun initApp(appConfig: AppConfig, database: Database): App {
 
         val app = App(appConfig)
 
@@ -89,7 +93,7 @@ class SlackApp {
 
         app.event(AppHomeOpenedEvent::class.java) { payload, ctx ->
             val slackUserId = payload.event.user
-            val appHomeSettings = Database.find(slackUserId)
+            val appHomeSettings = database.find(slackUserId)
             val newRelicApi = newRelicRestApi(appHomeSettings?.restApiKey)
             updateAppHome(slackUserId, appHomeSettings, ctx.client(), newRelicApi)
             ctx.ack()
@@ -98,10 +102,10 @@ class SlackApp {
         app.blockAction(ActionIds.selectAppOverlayMenu) { req, ctx ->
             val slackUserId = req.payload.user.id
             val appId = req.payload.actions[0].selectedOption.value.toInt()
-            val row = Database.find(slackUserId)
+            val row = database.find(slackUserId)
             if (row != null) {
                 row.defaultApplicationId = appId
-                Database.save(row)
+                database.save(row)
                 val newRelicApi = newRelicRestApi(row.restApiKey)
                 updateAppHome(slackUserId, row, ctx.client(), newRelicApi)
             }
@@ -115,7 +119,7 @@ class SlackApp {
         app.blockAction(ActionIds.settingsButton) { req, ctx ->
             val slackUserId = req.payload.user.id
             val triggerId = req.payload.triggerId
-            val appHomeSettings = Database.find(slackUserId)
+            val appHomeSettings = database.find(slackUserId)
             val view = buildSettingsModalView(appHomeSettings)
             viewsOpen(triggerId, view, ctx.client())
             ctx.ack()
@@ -142,14 +146,21 @@ class SlackApp {
             if (errors.isNotEmpty()) {
                 ctx.ack { it.responseAction("errors").errors(errors) } // display errors in the modal
             } else {
-                saveAndViewsPublish(slackUserId, accountId!!, restApiKey!!, queryApiKey!!, ctx.client())
+                saveAndViewsPublish(
+                        slackUserId,
+                        accountId!!,
+                        restApiKey!!,
+                        queryApiKey!!,
+                        database,
+                        ctx.client()
+                )
                 ctx.ack() // close
             }
         }
 
         app.blockAction(ActionIds.clearSettingsButton) { req, ctx ->
             val slackUserId = req.payload.user.id
-            Database.delete(slackUserId)
+            database.delete(slackUserId)
             updateAppHome(slackUserId, null, ctx.client(), null)
             ctx.ack()
         }
@@ -161,7 +172,7 @@ class SlackApp {
         app.blockAction(ActionIds.queryButton) { req, ctx ->
             val slackUserId = req.payload.user.id
             val triggerId = req.payload.triggerId
-            val appHomeSettings = Database.find(slackUserId)
+            val appHomeSettings = database.find(slackUserId)
             val newRelic = newRelicRestApi(appHomeSettings?.restApiKey)
             val accountId = appHomeSettings?.accountId
             val applicationId = appHomeSettings?.defaultApplicationId
@@ -180,7 +191,7 @@ class SlackApp {
         app.viewSubmission(CallbackIds.queryModal) { req, ctx ->
             val slackUserId = req.payload.user.id
             val state = req.payload.view.state.values
-            val appHomeSettings = Database.find(slackUserId)
+            val appHomeSettings = database.find(slackUserId)
             val query = buildQuery(
                     state?.get(BlockIds.inputQuery)?.get(ActionIds.input)?.value,
                     appHomeSettings?.defaultApplicationId
@@ -247,14 +258,15 @@ class SlackApp {
             accountId: String,
             restApiKey: String,
             queryApiKey: String,
+            database: Database,
             client: MethodsClient) {
         GlobalScope.async {
-            val row = Database.find(slackUserId)
+            val row = database.find(slackUserId)
             if (row != null) {
                 row.accountId = accountId
                 row.restApiKey = restApiKey
                 row.queryApiKey = queryApiKey
-                Database.save(row)
+                database.save(row)
                 val newRelicApi = newRelicRestApi(row.restApiKey)
                 updateAppHome(slackUserId, row, client, newRelicApi)
             } else {
@@ -266,7 +278,7 @@ class SlackApp {
                         queryApiKey = queryApiKey,
                         defaultApplicationId = newRelicApi?.applicationsList()?.applications?.first()?.id
                 )
-                Database.save(newRow)
+                database.save(newRow)
                 updateAppHome(slackUserId, newRow, client, newRelicApi)
             }
         }
