@@ -196,7 +196,8 @@ class SlackApp {
             if (logger.isDebugEnabled) {
                 logger.debug("Updating a view by responding to a view_submission request\n\n${JsonOps.toJsonString(view)}\n")
             }
-            ctx.ack { it.responseAction("update").view(view) } // close
+            // Will update the current modal
+            ctx.ack { it.responseAction("update").view(view) }
         }
 
         return app
