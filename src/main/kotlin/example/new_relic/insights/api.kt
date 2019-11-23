@@ -21,8 +21,9 @@ class NewRelicInsightsApi(
         val uri = URI("https://insights-api.newrelic.com/v1/accounts/$accountId/query?nrql=$query")
         val httpRequest = buildRequest(uri)
         val response = send(httpRequest)
-        logger.info("New Relic /v1/accounts/$accountId/query?nrql=$query - ${response.body()}")
-
+        if (logger.isDebugEnabled) {
+            logger.debug("New Relic /v1/accounts/$accountId/query?nrql=$query\n\n${response.body()}\n")
+        }
         return try {
             JsonOps.fromJson(response.body(), QueryResponse::class.java)
         } catch (e: Exception) {
@@ -43,7 +44,6 @@ class NewRelicInsightsApi(
                 .header("X-Query-Key", queryApiKey)
                 .build()
     }
-
 }
 
 data class QueryResponse(

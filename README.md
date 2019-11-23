@@ -53,6 +53,12 @@ docker build -t new-relic-jvm .
 docker run -p 3000:3000 -it new-relic-jvm
 ```
 
+Also, run [ngrok](https://ngrok.com/) on localhost and set the URL at `https://api.slack.com/apps/{your app id}`.
+
+```bash
+ngrok http 3000
+```
+
 # Deployment
 
 If you prefer using a real database, feel free to fork this repository 👍

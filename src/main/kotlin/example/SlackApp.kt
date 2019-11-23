@@ -1,6 +1,8 @@
 package example
 
 import com.github.seratch.jslack.api.methods.MethodsClient
+import com.github.seratch.jslack.api.methods.response.views.ViewsOpenResponse
+import com.github.seratch.jslack.api.methods.response.views.ViewsPublishResponse
 import com.github.seratch.jslack.api.model.block.*
 import com.github.seratch.jslack.api.model.block.composition.ConfirmationDialogObject
 import com.github.seratch.jslack.api.model.block.composition.MarkdownTextObject
@@ -71,7 +73,9 @@ class SlackApp {
         val app = App(appConfig)
 
         app.use { req, _, chain ->
-            logger.debug("request body - ${req.requestBodyAsString}")
+            if (logger.isDebugEnabled) {
+                logger.debug("Dumping request body for debugging...\n\n${req.requestBodyAsString}\n")
+            }
             chain.next(req)
         }
 
@@ -113,7 +117,6 @@ class SlackApp {
             val triggerId = req.payload.triggerId
             val appHomeSettings = Database.find(slackUserId)
             val view = buildSettingsModalView(appHomeSettings)
-            logger.info(JsonOps.toJsonString(view))
             viewsOpen(triggerId, view, ctx.client())
             ctx.ack()
         }
@@ -137,7 +140,7 @@ class SlackApp {
                 errors[BlockIds.inputQueryApiKey] = "Query API Key must be in a valid format"
             }
             if (errors.isNotEmpty()) {
-                ctx.ack { it.responseAction("errors").errors(errors) } // close
+                ctx.ack { it.responseAction("errors").errors(errors) } // display errors in the modal
             } else {
                 saveAndViewsPublish(slackUserId, accountId!!, restApiKey!!, queryApiKey!!, ctx.client())
                 ctx.ack() // close
@@ -170,7 +173,6 @@ class SlackApp {
                     applicationId,
                     query,
                     insightsApi.runQuery(query))
-            logger.info(JsonOps.toJsonString(view))
             viewsOpen(triggerId, view, ctx.client())
             ctx.ack()
         }
@@ -190,7 +192,10 @@ class SlackApp {
                     query,
                     insightsApi.runQuery(query)
             )
-            logger.info(JsonOps.toJsonString(view))
+
+            if (logger.isDebugEnabled) {
+                logger.debug("Updating a view by responding to a view_submission request\n\n${JsonOps.toJsonString(view)}\n")
+            }
             ctx.ack { it.responseAction("update").view(view) } // close
         }
 
@@ -214,20 +219,23 @@ class SlackApp {
                 NewRelicInsightsApi(appHomeSettings.accountId!!, appHomeSettings.queryApiKey!!)
             } else null
 
-    private fun viewsOpen(triggerId: String, view: View?, client: MethodsClient) {
-        val apiResponse = client.viewsOpen { it.triggerId(triggerId).view(view) }
-        logger.info("views.open response - ok: ${apiResponse.isOk}, error: ${apiResponse.error}")
+    private fun viewsOpen(triggerId: String, view: View?, client: MethodsClient): ViewsOpenResponse? {
+        if (logger.isDebugEnabled) {
+            logger.debug("Going to send this view to views.open API\n\n${JsonOps.toJsonString(view)}\n")
+        }
+        return client.viewsOpen { it.triggerId(triggerId).view(view) }
     }
 
-    private fun viewsPublish(blocks: List<LayoutBlock>, client: MethodsClient, slackUserId: String) {
+    private fun viewsPublish(blocks: List<LayoutBlock>, client: MethodsClient, slackUserId: String): ViewsPublishResponse? {
         val view = View.builder()
                 .type("home")
                 .blocks(blocks)
                 .build()
 
-        logger.info(JsonOps.toJsonString(view))
-        val apiResponse = client.viewsPublish { it.userId(slackUserId).view(view) }
-        logger.info("views.publish response - ok: ${apiResponse.isOk}, error: ${apiResponse.error}")
+        if (logger.isDebugEnabled) {
+            logger.debug("Going to send this view to views.publish API\n\n${JsonOps.toJsonString(view)}\n")
+        }
+        return client.viewsPublish { it.userId(slackUserId).view(view) }
     }
 
     // --------------

@@ -16,8 +16,9 @@ class NewRelicRestApi(private val apiKey: String) {
         val uri = URI("https://api.newrelic.com/v2/applications.json")
         val httpRequest = buildRequest(uri)
         val response = send(httpRequest)
-        logger.info("New Relic /v2/applications.json - ${response.body()}")
-
+        if (logger.isDebugEnabled) {
+            logger.debug("New Relic /v2/applications.json\n\n${response.body()}\n")
+        }
         return JsonOps.fromJson(response.body(), ApplicationsListResponse::class.java)
     }
 
@@ -25,8 +26,9 @@ class NewRelicRestApi(private val apiKey: String) {
         val uri = URI("https://api.newrelic.com/v2/applications/${applicationId}/hosts.json")
         val httpRequest = buildRequest(uri)
         val response = send(httpRequest)
-        logger.info("New Relic /v2/applications/${applicationId}/hosts.json - ${response.body()}")
-
+        if (logger.isDebugEnabled) {
+            logger.debug("New Relic /v2/applications/${applicationId}/hosts.json\n\n${response.body()}\n")
+        }
         return JsonOps.fromJson(response.body(), ApplicationHostsListResponse::class.java)
     }
 
@@ -34,8 +36,9 @@ class NewRelicRestApi(private val apiKey: String) {
         val uri = URI("https://api.newrelic.com/v2/alerts_violations.json")
         val httpRequest = buildRequest(uri)
         val response = send(httpRequest)
-        logger.info("New Relic /v2/alerts_violations.json - ${response.body()}")
-
+        if (logger.isDebugEnabled) {
+            logger.debug("New Relic /v2/alerts_violations.json\n\n${response.body()}\n")
+        }
         val fullResponse = JsonOps.fromJson(response.body(), AlertsViolationsListResponse::class.java)
         val violations = fullResponse.violations.filter { it.entity.type == "Application" && it.entity.id == applicationId }
         return AlertsViolationsListResponse(violations)
