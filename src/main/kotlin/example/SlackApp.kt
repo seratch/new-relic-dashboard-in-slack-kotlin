@@ -3,14 +3,13 @@ package example
 import com.github.seratch.jslack.api.methods.MethodsClient
 import com.github.seratch.jslack.api.methods.response.views.ViewsOpenResponse
 import com.github.seratch.jslack.api.methods.response.views.ViewsPublishResponse
+import com.github.seratch.jslack.api.methods.response.views.ViewsUpdateResponse
 import com.github.seratch.jslack.api.model.block.*
 import com.github.seratch.jslack.api.model.block.composition.ConfirmationDialogObject
 import com.github.seratch.jslack.api.model.block.composition.MarkdownTextObject
 import com.github.seratch.jslack.api.model.block.composition.OptionObject
 import com.github.seratch.jslack.api.model.block.composition.PlainTextObject
-import com.github.seratch.jslack.api.model.block.element.ButtonElement
-import com.github.seratch.jslack.api.model.block.element.OverflowMenuElement
-import com.github.seratch.jslack.api.model.block.element.PlainTextInputElement
+import com.github.seratch.jslack.api.model.block.element.*
 import com.github.seratch.jslack.api.model.event.AppHomeOpenedEvent
 import com.github.seratch.jslack.api.model.view.View
 import com.github.seratch.jslack.api.model.view.ViewClose
@@ -19,9 +18,9 @@ import com.github.seratch.jslack.api.model.view.ViewTitle
 import com.github.seratch.jslack.lightning.App
 import com.github.seratch.jslack.lightning.AppConfig
 import com.github.seratch.jslack.lightning.util.JsonOps
-import example.database.AppHomeSettings
 import example.database.Database
 import example.database.FileDatabase
+import example.database.Settings
 import example.new_relic.insights.NewRelicInsightsApi
 import example.new_relic.insights.QueryResponse
 import example.new_relic.rest.NewRelicRestApi
@@ -47,6 +46,7 @@ class SlackApp {
     object CallbackIds {
         const val settingsModal = "settings-modal"
         const val queryModal = "query-modal"
+        const val queryHistoryModal = "query-history-modal"
     }
 
     object BlockIds {
@@ -61,6 +61,8 @@ class SlackApp {
         const val settingsButton = "settings-button"
         const val clearSettingsButton = "clear-settings-button"
         const val queryButton = "query-button"
+        const val queryHistoryButton = "query-history-button"
+        const val queryRadioButton = "query-radio-button"
         const val selectAppOverlayMenu = "select-app-overlay-menu"
         const val viewInBrowserButton = "view-in-browser-button"
     }
@@ -93,19 +95,19 @@ class SlackApp {
 
         app.event(AppHomeOpenedEvent::class.java) { payload, ctx ->
             val slackUserId = payload.event.user
-            val appHomeSettings = database.find(slackUserId)
-            val newRelicApi = newRelicRestApi(appHomeSettings?.restApiKey)
-            updateAppHome(slackUserId, appHomeSettings, ctx.client(), newRelicApi)
+            val settings = database.findSettings(slackUserId)
+            val newRelicApi = newRelicRestApi(settings?.restApiKey)
+            updateAppHome(slackUserId, settings, ctx.client(), newRelicApi)
             ctx.ack()
         }
 
         app.blockAction(ActionIds.selectAppOverlayMenu) { req, ctx ->
             val slackUserId = req.payload.user.id
             val appId = req.payload.actions[0].selectedOption.value.toInt()
-            val row = database.find(slackUserId)
+            val row = database.findSettings(slackUserId)
             if (row != null) {
                 row.defaultApplicationId = appId
-                database.save(row)
+                database.saveSettings(row)
                 val newRelicApi = newRelicRestApi(row.restApiKey)
                 updateAppHome(slackUserId, row, ctx.client(), newRelicApi)
             }
@@ -119,8 +121,8 @@ class SlackApp {
         app.blockAction(ActionIds.settingsButton) { req, ctx ->
             val slackUserId = req.payload.user.id
             val triggerId = req.payload.triggerId
-            val appHomeSettings = database.find(slackUserId)
-            val view = buildSettingsModalView(appHomeSettings)
+            val settings = database.findSettings(slackUserId)
+            val view = buildSettingsModalView(settings)
             viewsOpen(triggerId, view, ctx.client())
             ctx.ack()
         }
@@ -160,7 +162,7 @@ class SlackApp {
 
         app.blockAction(ActionIds.clearSettingsButton) { req, ctx ->
             val slackUserId = req.payload.user.id
-            database.delete(slackUserId)
+            database.deleteAll(slackUserId)
             updateAppHome(slackUserId, null, ctx.client(), null)
             ctx.ack()
         }
@@ -172,18 +174,21 @@ class SlackApp {
         app.blockAction(ActionIds.queryButton) { req, ctx ->
             val slackUserId = req.payload.user.id
             val triggerId = req.payload.triggerId
-            val appHomeSettings = database.find(slackUserId)
-            val newRelic = newRelicRestApi(appHomeSettings?.restApiKey)
-            val accountId = appHomeSettings?.accountId
-            val applicationId = appHomeSettings?.defaultApplicationId
+            val settings = database.findSettings(slackUserId)
+            val newRelic = newRelicRestApi(settings?.restApiKey)
+            val accountId = settings?.accountId
+            val applicationId = settings?.defaultApplicationId
                     ?: newRelic?.applicationsList()?.applications?.first()?.id
             val query = buildQuery(null, applicationId)
-            val insightsApi = newRelicInsightsApi(appHomeSettings)!!
+            val insightsApi = newRelicInsightsApi(settings)!!
             val view = buildQueryModalView(
                     accountId,
                     applicationId,
                     query,
-                    insightsApi.runQuery(query))
+                    insightsApi.runQuery(query)
+            )
+            database.saveQuery(slackUserId, query)
+
             viewsOpen(triggerId, view, ctx.client())
             ctx.ack()
         }
@@ -191,24 +196,52 @@ class SlackApp {
         app.viewSubmission(CallbackIds.queryModal) { req, ctx ->
             val slackUserId = req.payload.user.id
             val state = req.payload.view.state.values
-            val appHomeSettings = database.find(slackUserId)
+            val settings = database.findSettings(slackUserId)
             val query = buildQuery(
                     state?.get(BlockIds.inputQuery)?.get(ActionIds.input)?.value,
-                    appHomeSettings?.defaultApplicationId
+                    settings?.defaultApplicationId
             )
-            val insightsApi = newRelicInsightsApi(appHomeSettings)!!
+            val insightsApi = newRelicInsightsApi(settings)!!
             val view = buildQueryModalView(
-                    appHomeSettings?.accountId,
-                    appHomeSettings?.defaultApplicationId,
+                    settings?.accountId,
+                    settings?.defaultApplicationId,
                     query,
                     insightsApi.runQuery(query)
             )
+            database.saveQuery(slackUserId, query)
 
             if (logger.isDebugEnabled) {
                 logger.debug("Updating a view by responding to a view_submission request\n\n${JsonOps.toJsonString(view)}\n")
             }
             // Will update the current modal
             ctx.ack { it.responseAction("update").view(view) }
+        }
+
+        app.blockAction(ActionIds.queryHistoryButton) { req, ctx ->
+            val slackUserId = req.payload.user.id
+            val queries = database.findQueries(slackUserId)
+            val view = buildQueryHistoryModalView(queries)
+            viewsUpdate(req.payload.view.id, view, ctx.client())
+            ctx.ack()
+        }
+
+        app.blockAction(ActionIds.queryRadioButton) { req, ctx ->
+            val slackUserId = req.payload.user.id
+            val queries = database.findQueries(slackUserId)
+            val idx = req.payload.actions[0]?.selectedOption?.value?.toInt()
+            val query = if (idx != null) queries[idx] else null
+            val settings = database.findSettings(slackUserId)
+            val insightsApi = newRelicInsightsApi(settings)!!
+            val view = buildQueryModalView(
+                    settings?.accountId,
+                    settings?.defaultApplicationId,
+                    query,
+                    insightsApi.runQuery(query)
+            )
+            database.saveQuery(slackUserId, query)
+
+            viewsUpdate(req.payload.view.id, view, ctx.client())
+            ctx.ack()
         }
 
         return app
@@ -226,9 +259,9 @@ class SlackApp {
             else null
 
 
-    private fun newRelicInsightsApi(appHomeSettings: AppHomeSettings?): NewRelicInsightsApi? =
-            if (appHomeSettings?.queryApiKey != null) {
-                NewRelicInsightsApi(appHomeSettings.accountId!!, appHomeSettings.queryApiKey!!)
+    private fun newRelicInsightsApi(settings: Settings?): NewRelicInsightsApi? =
+            if (settings?.queryApiKey != null) {
+                NewRelicInsightsApi(settings.accountId!!, settings.queryApiKey!!)
             } else null
 
     private fun viewsOpen(triggerId: String, view: View?, client: MethodsClient): ViewsOpenResponse? {
@@ -236,6 +269,13 @@ class SlackApp {
             logger.debug("Going to send this view to views.open API\n\n${JsonOps.toJsonString(view)}\n")
         }
         return client.viewsOpen { it.triggerId(triggerId).view(view) }
+    }
+
+    private fun viewsUpdate(viewId: String, view: View, client: MethodsClient): ViewsUpdateResponse? {
+        if (logger.isDebugEnabled) {
+            logger.debug("Going to send this view to views.update API\n\n${JsonOps.toJsonString(view)}\n")
+        }
+        return client.viewsUpdate { it.viewId(viewId).view(view) }
     }
 
     private fun viewsPublish(blocks: List<LayoutBlock>, client: MethodsClient, slackUserId: String): ViewsPublishResponse? {
@@ -261,24 +301,24 @@ class SlackApp {
             database: Database,
             client: MethodsClient) {
         GlobalScope.async {
-            val row = database.find(slackUserId)
+            val row = database.findSettings(slackUserId)
             if (row != null) {
                 row.accountId = accountId
                 row.restApiKey = restApiKey
                 row.queryApiKey = queryApiKey
-                database.save(row)
+                database.saveSettings(row)
                 val newRelicApi = newRelicRestApi(row.restApiKey)
                 updateAppHome(slackUserId, row, client, newRelicApi)
             } else {
                 val newRelicApi = newRelicRestApi(restApiKey)
-                val newRow = AppHomeSettings(
+                val newRow = Settings(
                         slackUserId = slackUserId,
                         accountId = accountId,
                         restApiKey = restApiKey,
                         queryApiKey = queryApiKey,
                         defaultApplicationId = newRelicApi?.applicationsList()?.applications?.first()?.id
                 )
-                database.save(newRow)
+                database.saveSettings(newRow)
                 updateAppHome(slackUserId, newRow, client, newRelicApi)
             }
         }
@@ -288,7 +328,7 @@ class SlackApp {
 
     private fun updateAppHome(
             slackUserId: String,
-            appHomeSettings: AppHomeSettings?,
+            settings: Settings?,
             client: MethodsClient,
             newRelicRestApi: NewRelicRestApi?) {
 
@@ -348,8 +388,8 @@ class SlackApp {
 
         val firstApp = applications.first()
         val currentApp =
-                if (appHomeSettings != null) {
-                    val filteredApps = applications.filter { it.id == appHomeSettings.defaultApplicationId }
+                if (settings != null) {
+                    val filteredApps = applications.filter { it.id == settings.defaultApplicationId }
                     if (filteredApps.isEmpty()) firstApp else filteredApps.first()
                 } else firstApp
 
@@ -369,7 +409,7 @@ class SlackApp {
                 .accessory(ButtonElement.builder()
                         .actionId(ActionIds.viewInBrowserButton)
                         .text(plainTextObject("View in browser"))
-                        .url("https://rpm.newrelic.com/accounts/${appHomeSettings!!.accountId}/applications/${currentApp.id}")
+                        .url("https://rpm.newrelic.com/accounts/${settings!!.accountId}/applications/${currentApp.id}")
                         .build())
                 .build()
 
@@ -395,7 +435,7 @@ class SlackApp {
                 .accessory(ButtonElement.builder()
                         .actionId(ActionIds.viewInBrowserButton)
                         .text(plainTextObject("View in browser"))
-                        .url("https://rpm.newrelic.com/accounts/${appHomeSettings.accountId}/applications/${currentApp.id}/violations")
+                        .url("https://rpm.newrelic.com/accounts/${settings.accountId}/applications/${currentApp.id}/violations")
                         .build()
                 ).build()
         val violations = newRelicRestApi.alertsViolationsList(currentApp.id)!!.violations
@@ -422,7 +462,7 @@ class SlackApp {
     // --------------
     // Building Modals
 
-    private fun buildSettingsModalView(appHomeSettings: AppHomeSettings?): View? {
+    private fun buildSettingsModalView(settings: Settings?): View? {
         return View.builder()
                 .type("modal")
                 .callbackId(CallbackIds.settingsModal)
@@ -436,7 +476,7 @@ class SlackApp {
                                 .element(PlainTextInputElement.builder()
                                         .actionId(ActionIds.input)
                                         .placeholder(plainTextObject("Check rpm.newrelic.com/accounts/"))
-                                        .initialValue(appHomeSettings?.accountId)
+                                        .initialValue(settings?.accountId)
                                         .build())
                                 .optional(false)
                                 .build(),
@@ -446,7 +486,7 @@ class SlackApp {
                                 .element(PlainTextInputElement.builder()
                                         .actionId(ActionIds.input)
                                         .placeholder(plainTextObject("Check rpm.newrelic.com/accounts/{id}/integrations?page=api_keys"))
-                                        .initialValue(appHomeSettings?.restApiKey ?: "NRRA-")
+                                        .initialValue(settings?.restApiKey ?: "NRRA-")
                                         .build())
                                 .optional(false)
                                 .build(),
@@ -456,7 +496,7 @@ class SlackApp {
                                 .element(PlainTextInputElement.builder()
                                         .actionId(ActionIds.input)
                                         .placeholder(plainTextObject("Check insights.newrelic.com/accounts/{id}}/manage/api_keys"))
-                                        .initialValue(appHomeSettings?.queryApiKey ?: "NRIQ-")
+                                        .initialValue(settings?.queryApiKey ?: "NRIQ-")
                                         .build())
                                 .optional(false)
                                 .build()
@@ -487,11 +527,17 @@ class SlackApp {
                 .title(ViewTitle.builder().type("plain_text").text("Insights Query Runner").build())
                 .blocks(listOf(
                         ActionsBlock.builder()
-                                .elements(listOf(ButtonElement.builder()
-                                        .actionId(ActionIds.viewInBrowserButton)
-                                        .text(plainTextObject("NRQL: New Relic Query Language"))
-                                        .url("https://docs.newrelic.com/docs/query-data/nrql-new-relic-query-language/getting-started/nrql-syntax-components-functions")
-                                        .build()))
+                                .elements(listOf(
+                                        ButtonElement.builder()
+                                                .actionId(ActionIds.viewInBrowserButton)
+                                                .text(plainTextObject("What's NRQL?"))
+                                                .url("https://docs.newrelic.com/docs/query-data/nrql-new-relic-query-language/getting-started/nrql-syntax-components-functions")
+                                                .build(),
+                                        ButtonElement.builder()
+                                                .actionId(ActionIds.queryHistoryButton)
+                                                .text(plainTextObject("Query History"))
+                                                .build()
+                                ))
                                 .build(),
                         InputBlock.builder()
                                 .blockId(BlockIds.inputQuery)
@@ -548,6 +594,35 @@ class SlackApp {
             )).build())
         }
         return blocks
+    }
+
+    private fun buildQueryHistoryModalView(queries: List<String>): View {
+        val options = queries.mapIndexed { idx, q ->
+            OptionObject.builder()
+                    .text(plainTextObject(q.take(67) + (if (q.length > 67) "..." else "")))
+                    .value(idx.toString())
+                    .build()
+        }
+        val accessory: BlockElement? = if (options.isEmpty()) null else {
+            RadioButtonsElement.builder()
+                    .actionId(ActionIds.queryRadioButton)
+                    .options(options)
+                    .build()
+        }
+        return View.builder()
+                .type("modal")
+                .callbackId(CallbackIds.queryHistoryModal)
+                .close(ViewClose.builder().type("plain_text").text("Close").build())
+                .title(ViewTitle.builder().type("plain_text").text("Insights Query History").build())
+                .blocks(listOf(
+                        SectionBlock.builder()
+                                .text(MarkdownTextObject.builder()
+                                        .text("Here is the list of the queries you recently ran. Select a query you'd like to run again.")
+                                        .build())
+                                .accessory(accessory)
+                                .build()
+                ))
+                .build()
     }
 
     // ------------------------------------------------

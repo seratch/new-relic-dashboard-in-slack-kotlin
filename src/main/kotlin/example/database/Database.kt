@@ -2,10 +2,14 @@ package example.database
 
 interface Database {
 
-    fun save(entity: AppHomeSettings)
+    fun saveSettings(entity: Settings)
 
-    fun find(slackUserId: String): AppHomeSettings?
+    fun findSettings(slackUserId: String): Settings?
 
-    fun delete(slackUserId: String)
+    fun deleteAll(slackUserId: String)
+
+    fun saveQuery(slackUserId: String, query: String?)
+
+    fun findQueries(slackUserId: String): List<String>
 
 }

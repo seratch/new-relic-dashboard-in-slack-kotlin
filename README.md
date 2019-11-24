@@ -37,6 +37,8 @@ Modals are dynamic and interactive space for collecting data from Slack users an
 * REST API Key - `https://rpm.newrelic.com/accounts/{your account id}/integrations?page=api_keys`
 * Insights API Key - `https://insights.newrelic.com/accounts/{your account id}/manage/api_keys`
 
+<img src="https://github.com/seratch/new-relic-dashboard-in-slack-kotlin/raw/master/images/settings.png" width=600 />
+
 # Local Development
 
 ```bash

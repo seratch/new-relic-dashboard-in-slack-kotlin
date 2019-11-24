@@ -47,10 +47,8 @@ tasks.withType<KotlinCompile> {
 	}
 }
 
-// NOTE: If you'd like to run this app with New Relic Agent attached,
-// enable the following part with your path to newrelic dir.
-/*
 tasks.bootRun {
-	jvmArgs = listOf("-javaagent:/Users/ksera/newrelic/newrelic.jar")
+	// NOTE: If you'd like to run this app with New Relic Agent attached,
+	// enable the following part with your path to newrelic dir.
+	// jvmArgs = listOf("-javaagent:/Users/ksera/newrelic/newrelic.jar")
 }
-*/
