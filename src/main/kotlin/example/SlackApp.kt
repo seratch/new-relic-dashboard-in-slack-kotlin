@@ -4,12 +4,11 @@ import com.github.seratch.jslack.api.methods.MethodsClient
 import com.github.seratch.jslack.api.methods.response.views.ViewsOpenResponse
 import com.github.seratch.jslack.api.methods.response.views.ViewsPublishResponse
 import com.github.seratch.jslack.api.methods.response.views.ViewsUpdateResponse
-import com.github.seratch.jslack.api.model.block.*
-import com.github.seratch.jslack.api.model.block.composition.ConfirmationDialogObject
-import com.github.seratch.jslack.api.model.block.composition.MarkdownTextObject
-import com.github.seratch.jslack.api.model.block.composition.OptionObject
-import com.github.seratch.jslack.api.model.block.composition.PlainTextObject
-import com.github.seratch.jslack.api.model.block.element.*
+import com.github.seratch.jslack.api.model.block.Blocks.*
+import com.github.seratch.jslack.api.model.block.LayoutBlock
+import com.github.seratch.jslack.api.model.block.composition.BlockCompositions.*
+import com.github.seratch.jslack.api.model.block.element.BlockElement
+import com.github.seratch.jslack.api.model.block.element.BlockElements.*
 import com.github.seratch.jslack.api.model.event.AppHomeOpenedEvent
 import com.github.seratch.jslack.api.model.view.View
 import com.github.seratch.jslack.api.model.view.ViewClose
@@ -334,57 +333,47 @@ class SlackApp {
 
         if (newRelicRestApi == null) {
             // need initialize
-            viewsPublish(listOf(
-                    SectionBlock.builder()
-                            .text(markdownTextObject("*:loud_sound: Unlock your personalized :new-relic: dashboard!*")).build(),
-                    ActionsBlock.builder()
-                            .elements(listOf(ButtonElement.builder()
-                                    .actionId(ActionIds.settingsButton)
-                                    .style("primary")
-                                    .text(plainTextObject("Enable Now"))
-                                    .build()
-                            )).build()), client, slackUserId)
+            viewsPublish(asBlocks(
+                    section { it.text(markdownText("*:loud_sound: Unlock your personalized :new-relic: dashboard!*")) },
+                    actions {
+                        it.elements(asElements(button { b ->
+                            b.actionId(ActionIds.settingsButton).style("primary").text(plainText("Enable Now"))
+                        }))
+                    }), client, slackUserId)
             return
         }
 
-        val headerBlock = SectionBlock.builder()
-                .text(markdownTextObject("*:new-relic: New Relic Dashboard :new-relic:*"))
-                .accessory(ButtonElement.builder()
-                        .actionId(ActionIds.clearSettingsButton)
-                        .style("danger")
-                        .text(plainTextObject("Clear Settings"))
-                        .confirm(ConfirmationDialogObject.builder()
-                                .title(plainTextObject("Clear Settings"))
-                                .text(plainTextObject("Are you sure?")).build())
-                        .build())
-                .build()
+        val headerBlock = section {
+            it.text(markdownText("*:new-relic: New Relic Dashboard :new-relic:*"))
+                    .accessory(button { b ->
+                        b.actionId(ActionIds.clearSettingsButton).style("danger")
+                                .text(plainText("Clear Settings"))
+                                .confirm(confirmationDialog { cd ->
+                                    cd.title(plainText("Clear Settings")).text(plainText("Are you sure?"))
+                                })
+                    })
+        }
 
-        val queryBlock = ActionsBlock.builder().elements(listOf(ButtonElement.builder()
-                .actionId(ActionIds.queryButton)
-                .text(plainTextObject(":pencil: Query Runner"))
-                .build()
-        )).build()
+        val queryBlock = actions(asElements(button {
+            it.actionId(ActionIds.queryButton).text(plainText(":pencil: Query Runner"))
+        }))
 
         val applications = newRelicRestApi.applicationsList()!!.applications
-        val appSelectorBlock = SectionBlock.builder()
-                .text(plainTextObject("Select Application :arrow_right:"))
-                .accessory(OverflowMenuElement.builder()
-                        .actionId(ActionIds.selectAppOverlayMenu)
-                        .options(applications.map { app ->
-                            OptionObject.builder()
-                                    .text(plainTextObject(app.name))
-                                    .value(app.id.toString())
-                                    .build()
+        val appSelectorBlock = section {
+            it.text(plainText("Select Application :arrow_right:"))
+                    .accessory(overflowMenu { ofm ->
+                        ofm.actionId(ActionIds.selectAppOverlayMenu).options(applications.map { app ->
+                            option { o -> o.text(plainText(app.name)).value(app.id.toString()) }
                         })
-                        .build()
-                ).build()
+                    })
+        }
 
         if (applications.isEmpty()) {
             viewsPublish(listOf(headerBlock, appSelectorBlock), client, slackUserId)
             return
         }
 
-        val dividerBlock = DividerBlock.builder().build()
+        val dividerBlock = divider()
 
         val firstApp = applications.first()
         val currentApp =
@@ -393,68 +382,68 @@ class SlackApp {
                     if (filteredApps.isEmpty()) firstApp else filteredApps.first()
                 } else firstApp
 
-        val appHeaderBlock = SectionBlock.builder().text(markdownTextObject("*:mag: Application*")).build()
-
+        val appHeaderBlock = section { it.text(markdownText("*:mag: Application*")) }
         val appHealthStatus = if (currentApp.healthStatus == "red") ":red_circle:" else ":large_blue_circle:"
         val date =
                 if (currentApp.lastReportedAt != null) ZonedDateTime.parse(currentApp.lastReportedAt, DateTimeFormatter.ISO_OFFSET_DATE_TIME).withZoneSameInstant(zoneId)
                 else null
-        val appBlock = SectionBlock.builder()
-                .text(markdownTextObject("""
+        val appBlock = section {
+            it.text(markdownText("""
                         Name: *${currentApp.name}*
                         Language: *:${currentApp.language}:*
                         Health Status: *${appHealthStatus}*
                         Last Reported: *${date?.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) ?: "-"}*
-                        """.trimIndent()))
-                .accessory(ButtonElement.builder()
-                        .actionId(ActionIds.viewInBrowserButton)
-                        .text(plainTextObject("View in browser"))
+                        """.trimIndent())
+            ).accessory(button { b ->
+                b.actionId(ActionIds.viewInBrowserButton)
+                        .text(plainText("View in browser"))
                         .url("https://rpm.newrelic.com/accounts/${settings!!.accountId}/applications/${currentApp.id}")
-                        .build())
-                .build()
+            })
+        }
 
-        val hostsHeaderBlock = SectionBlock.builder()
-                .text(markdownTextObject("*:electric_plug: Hosts*"))
-                .build()
+        val hostsHeaderBlock = section { it.text(markdownText("*:electric_plug: Hosts*")) }
 
         val hosts = newRelicRestApi.applicationHostsList(currentApp.id)!!.applicationHosts
         val hostsBlocks =
                 if (hosts.isNotEmpty()) {
-                    val hostsBlock = SectionBlock.builder().fields(hosts.take(10).map { host ->
-                        val hostHealthStatus = if (host.healthStatus == "red") ":red_circle:" else ":large_blue_circle:"
-                        markdownTextObject("""
-                            Host: *${host.host}*
-                            Health Status: *${hostHealthStatus}*
-                        """.trimIndent())
-                    }).build()
+                    val hostsBlock = section {
+                        it.fields(hosts.take(10).map { host ->
+                            val hostHealthStatus = if (host.healthStatus == "red") ":red_circle:" else ":large_blue_circle:"
+                            markdownText("""
+                                Host: *${host.host}*
+                                Health Status: *${hostHealthStatus}*
+                            """.trimIndent())
+                        })
+                    }
                     listOf(hostsHeaderBlock, dividerBlock, hostsBlock)
                 } else emptyListOfBlock
 
-        val violationsHeaderBlock = SectionBlock.builder()
-                .text(markdownTextObject("*:warning: Alert Violations*"))
-                .accessory(ButtonElement.builder()
-                        .actionId(ActionIds.viewInBrowserButton)
-                        .text(plainTextObject("View in browser"))
-                        .url("https://rpm.newrelic.com/accounts/${settings.accountId}/applications/${currentApp.id}/violations")
-                        .build()
-                ).build()
+        val violationsHeaderBlock = section {
+            it.text(markdownText("*:warning: Alert Violations*"))
+                    .accessory(button { b ->
+                        b.actionId(ActionIds.viewInBrowserButton)
+                                .text(plainText("View in browser"))
+                                .url("https://rpm.newrelic.com/accounts/${settings!!.accountId}/applications/${currentApp.id}/violations")
+                    })
+        }
         val violations = newRelicRestApi.alertsViolationsList(currentApp.id)!!.violations
-        val violationsBlock = SectionBlock.builder()
-                .fields(violations.take(10).map { v ->
-                    val opened = ZonedDateTime.ofInstant(Date(v.openedAt).toInstant(), zoneId)
-                    markdownTextObject("""
-                        Priority: *${v.priority}*
-                        Violation: *${v.label}*
-                        Opened: *${opened.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)}*
-                    """.trimIndent())
-                }).build()
+        val violationsBlock = section {
+            it.fields(violations.take(10).map { v ->
+                val opened = ZonedDateTime.ofInstant(Date(v.openedAt).toInstant(), zoneId)
+                markdownText("""
+                    Priority: *${v.priority}*
+                    Violation: *${v.label}*
+                    Opened: *${opened.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)}*
+                """.trimIndent())
+            })
+        }
 
         val violationsBlocks =
-                if (violations.isNotEmpty()) listOf(violationsHeaderBlock, dividerBlock, violationsBlock)
+                if (violations.isNotEmpty()) asBlocks(violationsHeaderBlock, dividerBlock, violationsBlock)
                 else emptyListOfBlock
 
         val blocks =
-                listOf(headerBlock, queryBlock, dividerBlock, appSelectorBlock, appHeaderBlock, dividerBlock, appBlock) +
+                asBlocks(headerBlock, queryBlock, dividerBlock, appSelectorBlock, appHeaderBlock, dividerBlock, appBlock) +
                         hostsBlocks + violationsBlocks
         viewsPublish(blocks, client, slackUserId)
     }
@@ -469,39 +458,35 @@ class SlackApp {
                 .submit(ViewSubmit.builder().type("plain_text").text("Save").build())
                 .close(ViewClose.builder().type("plain_text").text("Close").build())
                 .title(ViewTitle.builder().type("plain_text").text("New Relic Settings").build())
-                .blocks(listOf(
-                        InputBlock.builder()
-                                .blockId(BlockIds.inputAccountId)
-                                .label(plainTextObject("Account Id"))
-                                .element(PlainTextInputElement.builder()
-                                        .actionId(ActionIds.input)
-                                        .placeholder(plainTextObject("Check rpm.newrelic.com/accounts/"))
-                                        .initialValue(settings?.accountId)
-                                        .build())
-                                .optional(false)
-                                .build(),
-                        InputBlock.builder()
-                                .blockId(BlockIds.inputRestApiKey)
-                                .label(plainTextObject("REST API Key"))
-                                .element(PlainTextInputElement.builder()
-                                        .actionId(ActionIds.input)
-                                        .placeholder(plainTextObject("Check rpm.newrelic.com/accounts/{id}/integrations?page=api_keys"))
-                                        .initialValue(settings?.restApiKey ?: "NRRA-")
-                                        .build())
-                                .optional(false)
-                                .build(),
-                        InputBlock.builder()
-                                .blockId(BlockIds.inputQueryApiKey)
-                                .label(plainTextObject("Insights Query API Key"))
-                                .element(PlainTextInputElement.builder()
-                                        .actionId(ActionIds.input)
-                                        .placeholder(plainTextObject("Check insights.newrelic.com/accounts/{id}}/manage/api_keys"))
-                                        .initialValue(settings?.queryApiKey ?: "NRIQ-")
-                                        .build())
-                                .optional(false)
-                                .build()
-                ))
-                .build()
+                .blocks(asBlocks(
+                        input {
+                            it.blockId(BlockIds.inputAccountId)
+                                    .label(plainText("Account Id"))
+                                    .element(plainTextInput { pti ->
+                                        pti.actionId(ActionIds.input)
+                                                .placeholder(plainText("Check rpm.newrelic.com/accounts/"))
+                                                .initialValue(settings?.accountId)
+                                    }).optional(false)
+                        },
+                        input {
+                            it.blockId(BlockIds.inputRestApiKey)
+                                    .label(plainText("REST API Key"))
+                                    .element(plainTextInput { pti ->
+                                        pti.actionId(ActionIds.input)
+                                                .placeholder(plainText("Check rpm.newrelic.com/accounts/{id}/integrations?page=api_keys"))
+                                                .initialValue(settings?.restApiKey ?: "NRRA-")
+                                    }).optional(false)
+                        },
+                        input {
+                            it.blockId(BlockIds.inputQueryApiKey)
+                                    .label(plainText("Insights Query API Key"))
+                                    .element(plainTextInput { pti ->
+                                        pti.actionId(ActionIds.input)
+                                                .placeholder(plainText("Check insights.newrelic.com/accounts/{id}}/manage/api_keys"))
+                                                .initialValue(settings?.queryApiKey ?: "NRIQ-")
+                                    }).optional(false)
+                        }
+                )).build()
     }
 
     private fun buildQuery(query: String?, applicationId: Int?): String? {
@@ -525,110 +510,99 @@ class SlackApp {
                 .submit(ViewSubmit.builder().type("plain_text").text("Run").build())
                 .close(ViewClose.builder().type("plain_text").text("Close").build())
                 .title(ViewTitle.builder().type("plain_text").text("Insights Query Runner").build())
-                .blocks(listOf(
-                        ActionsBlock.builder()
-                                .elements(listOf(
-                                        ButtonElement.builder()
-                                                .actionId(ActionIds.viewInBrowserButton)
-                                                .text(plainTextObject("What's NRQL?"))
+                .blocks(asBlocks(
+                        actions {
+                            it.elements(asElements(
+                                    button { b ->
+                                        b.actionId(ActionIds.viewInBrowserButton)
+                                                .text(plainText("What's NRQL?"))
                                                 .url("https://docs.newrelic.com/docs/query-data/nrql-new-relic-query-language/getting-started/nrql-syntax-components-functions")
-                                                .build(),
-                                        ButtonElement.builder()
-                                                .actionId(ActionIds.queryHistoryButton)
-                                                .text(plainTextObject("Query History"))
-                                                .build()
-                                ))
-                                .build(),
-                        InputBlock.builder()
-                                .blockId(BlockIds.inputQuery)
-                                .label(plainTextObject("Query (NRQL)"))
-                                .element(PlainTextInputElement.builder()
-                                        .actionId(ActionIds.input)
-                                        .placeholder(plainTextObject("Write an NRQL query here"))
-                                        .initialValue(queryToRun)
-                                        .multiline(true)
-                                        .build())
-                                .optional(false)
-                                .build()
+                                    },
+                                    button { b ->
+                                        b.actionId(ActionIds.queryHistoryButton).text(plainText("Query History"))
+                                    }
+                            ))
+                        },
+                        input {
+                            it.blockId(BlockIds.inputQuery)
+                                    .label(plainText("Query (NRQL)"))
+                                    .element(plainTextInput { pti ->
+                                        pti.actionId(ActionIds.input)
+                                                .placeholder(plainText("Write an NRQL query here"))
+                                                .initialValue(queryToRun)
+                                                .multiline(true)
+                                    }).optional(false)
+                        }
                 ) + buildQueryResultBlocks(accountId, queryToRun, queryResponse))
                 .build()
     }
 
     private fun buildQueryResultBlocks(accountId: String?, query: String?, queryResponse: QueryResponse?): List<LayoutBlock> {
         val blocks = mutableListOf<LayoutBlock>()
-        val dividerBlock = DividerBlock.builder().build()
         if (queryResponse?.error != null) {
-            blocks.add(dividerBlock)
-            blocks.add(SectionBlock.builder().text(markdownTextObject(queryResponse.error)).build())
+            blocks.add(divider())
+            blocks.add(section { it.text(markdownText(queryResponse.error)) })
         } else if (queryResponse?.results != null) {
             for (result in queryResponse.results) {
                 if (result["events"] != null) {
                     if ((result["events"] ?: error("")).isNotEmpty()) {
                         val events = (result["events"] ?: error("")).take(20)
                         for (event in events) {
-                            blocks.add(dividerBlock)
-                            val block = SectionBlock.builder().text(markdownTextObject(event.keys.joinToString("\n") { key -> "$key: *${event[key]}*" })).build()
+                            blocks.add(divider())
+                            val block = section {
+                                it.text(markdownText(event.keys.joinToString("\n") { key -> "$key: *${event[key]}*" }))
+                            }
                             blocks.add(block)
                         }
                     } else {
-                        blocks.add(dividerBlock)
-                        val block = SectionBlock.builder().text(markdownTextObject("No data found.")).build()
+                        blocks.add(divider())
+                        val block = section { it.text(markdownText("No data found.")) }
                         blocks.add(block)
                     }
                 } else if (result.size == 1) {
                     val res = result.values.first()[0]
-                    blocks.add(dividerBlock)
-                    val block = SectionBlock.builder().text(markdownTextObject(res.keys.joinToString("\n") { key -> "$key: *${res[key]}*" })).build()
+                    blocks.add(divider())
+                    val block = section {
+                        it.text(markdownText(res.keys.joinToString("\n") { key -> "$key: *${res[key]}*" }))
+                    }
                     blocks.add(block)
                 }
             }
         }
         if (accountId != null) {
             val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            blocks.add(dividerBlock)
-            blocks.add(ActionsBlock.builder().elements(listOf(ButtonElement.builder()
-                    .actionId(ActionIds.viewInBrowserButton)
-                    .text(plainTextObject("View in browser"))
-                    .url("https://insights.newrelic.com/accounts/$accountId/query?query=$encodedQuery")
-                    .build()
-            )).build())
+            blocks.add(divider())
+            blocks.add(actions {
+                it.elements(asElements(button { b ->
+                    b.actionId(ActionIds.viewInBrowserButton)
+                            .text(plainText("View in browser"))
+                            .url("https://insights.newrelic.com/accounts/$accountId/query?query=$encodedQuery")
+                }))
+            })
         }
         return blocks
     }
 
     private fun buildQueryHistoryModalView(queries: List<String>): View {
         val options = queries.mapIndexed { idx, q ->
-            OptionObject.builder()
-                    .text(plainTextObject(q.take(67) + (if (q.length > 67) "..." else "")))
-                    .value(idx.toString())
-                    .build()
+            option {
+                it.text(plainText(q.take(67) + (if (q.length > 67) "..." else ""))).value(idx.toString())
+            }
         }
         val accessory: BlockElement? = if (options.isEmpty()) null else {
-            RadioButtonsElement.builder()
-                    .actionId(ActionIds.queryRadioButton)
-                    .options(options)
-                    .build()
+            radioButtons { it.actionId(ActionIds.queryRadioButton).options(options) }
         }
         return View.builder()
                 .type("modal")
                 .callbackId(CallbackIds.queryHistoryModal)
                 .close(ViewClose.builder().type("plain_text").text("Close").build())
                 .title(ViewTitle.builder().type("plain_text").text("Insights Query History").build())
-                .blocks(listOf(
-                        SectionBlock.builder()
-                                .text(MarkdownTextObject.builder()
-                                        .text("Here is the list of the queries you recently ran. Select a query you'd like to run again.")
-                                        .build())
-                                .accessory(accessory)
-                                .build()
-                ))
+                .blocks(listOf(section {
+                    it.text(markdownText { m ->
+                        m.text("Here is the list of the queries you recently ran. Select a query you'd like to run again.")
+                    }).accessory(accessory)
+                }))
                 .build()
     }
-
-    // ------------------------------------------------
-
-    private fun plainTextObject(text: String) = PlainTextObject.builder().text(text).build()
-
-    private fun markdownTextObject(text: String?) = MarkdownTextObject.builder().text(text).build()
 
 }
