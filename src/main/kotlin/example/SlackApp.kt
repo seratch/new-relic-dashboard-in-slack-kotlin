@@ -11,9 +11,7 @@ import com.github.seratch.jslack.api.model.block.element.BlockElement
 import com.github.seratch.jslack.api.model.block.element.BlockElements.*
 import com.github.seratch.jslack.api.model.event.AppHomeOpenedEvent
 import com.github.seratch.jslack.api.model.view.View
-import com.github.seratch.jslack.api.model.view.ViewClose
-import com.github.seratch.jslack.api.model.view.ViewSubmit
-import com.github.seratch.jslack.api.model.view.ViewTitle
+import com.github.seratch.jslack.api.model.view.Views.*
 import com.github.seratch.jslack.lightning.App
 import com.github.seratch.jslack.lightning.AppConfig
 import com.github.seratch.jslack.lightning.util.JsonOps
@@ -278,11 +276,7 @@ class SlackApp {
     }
 
     private fun viewsPublish(blocks: List<LayoutBlock>, client: MethodsClient, slackUserId: String): ViewsPublishResponse? {
-        val view = View.builder()
-                .type("home")
-                .blocks(blocks)
-                .build()
-
+        val view = view { it.type("home").blocks(blocks) }
         if (logger.isDebugEnabled) {
             logger.debug("Going to send this view to views.publish API\n\n${JsonOps.toJsonString(view)}\n")
         }
@@ -452,41 +446,42 @@ class SlackApp {
     // Building Modals
 
     private fun buildSettingsModalView(settings: Settings?): View? {
-        return View.builder()
-                .type("modal")
-                .callbackId(CallbackIds.settingsModal)
-                .submit(ViewSubmit.builder().type("plain_text").text("Save").build())
-                .close(ViewClose.builder().type("plain_text").text("Close").build())
-                .title(ViewTitle.builder().type("plain_text").text("New Relic Settings").build())
-                .blocks(asBlocks(
-                        input {
-                            it.blockId(BlockIds.inputAccountId)
-                                    .label(plainText("Account Id"))
-                                    .element(plainTextInput { pti ->
-                                        pti.actionId(ActionIds.input)
-                                                .placeholder(plainText("Check rpm.newrelic.com/accounts/"))
-                                                .initialValue(settings?.accountId)
-                                    }).optional(false)
-                        },
-                        input {
-                            it.blockId(BlockIds.inputRestApiKey)
-                                    .label(plainText("REST API Key"))
-                                    .element(plainTextInput { pti ->
-                                        pti.actionId(ActionIds.input)
-                                                .placeholder(plainText("Check rpm.newrelic.com/accounts/{id}/integrations?page=api_keys"))
-                                                .initialValue(settings?.restApiKey ?: "NRRA-")
-                                    }).optional(false)
-                        },
-                        input {
-                            it.blockId(BlockIds.inputQueryApiKey)
-                                    .label(plainText("Insights Query API Key"))
-                                    .element(plainTextInput { pti ->
-                                        pti.actionId(ActionIds.input)
-                                                .placeholder(plainText("Check insights.newrelic.com/accounts/{id}}/manage/api_keys"))
-                                                .initialValue(settings?.queryApiKey ?: "NRIQ-")
-                                    }).optional(false)
-                        }
-                )).build()
+        return view {
+            it.type("modal")
+                    .callbackId(CallbackIds.settingsModal)
+                    .submit(viewSubmit { vs -> vs.type("plain_text").text("Save") })
+                    .close(viewClose { vc -> vc.type("plain_text").text("Close") })
+                    .title(viewTitle { vt -> vt.type("plain_text").text("New Relic Settings") })
+                    .blocks(asBlocks(
+                            input { i ->
+                                i.blockId(BlockIds.inputAccountId)
+                                        .label(plainText("Account Id"))
+                                        .element(plainTextInput { pti ->
+                                            pti.actionId(ActionIds.input)
+                                                    .placeholder(plainText("Check rpm.newrelic.com/accounts/"))
+                                                    .initialValue(settings?.accountId)
+                                        }).optional(false)
+                            },
+                            input { i ->
+                                i.blockId(BlockIds.inputRestApiKey)
+                                        .label(plainText("REST API Key"))
+                                        .element(plainTextInput { pti ->
+                                            pti.actionId(ActionIds.input)
+                                                    .placeholder(plainText("Check rpm.newrelic.com/accounts/{id}/integrations?page=api_keys"))
+                                                    .initialValue(settings?.restApiKey ?: "NRRA-")
+                                        }).optional(false)
+                            },
+                            input { i ->
+                                i.blockId(BlockIds.inputQueryApiKey)
+                                        .label(plainText("Insights Query API Key"))
+                                        .element(plainTextInput { pti ->
+                                            pti.actionId(ActionIds.input)
+                                                    .placeholder(plainText("Check insights.newrelic.com/accounts/{id}}/manage/api_keys"))
+                                                    .initialValue(settings?.queryApiKey ?: "NRIQ-")
+                                        }).optional(false)
+                            }
+                    ))
+        }
     }
 
     private fun buildQuery(query: String?, applicationId: Int?): String? {
@@ -504,37 +499,37 @@ class SlackApp {
             query: String? = null,
             queryResponse: QueryResponse? = null): View {
         val queryToRun = buildQuery(query, applicationId)
-        return View.builder()
-                .type("modal")
-                .callbackId(CallbackIds.queryModal)
-                .submit(ViewSubmit.builder().type("plain_text").text("Run").build())
-                .close(ViewClose.builder().type("plain_text").text("Close").build())
-                .title(ViewTitle.builder().type("plain_text").text("Insights Query Runner").build())
-                .blocks(asBlocks(
-                        actions {
-                            it.elements(asElements(
-                                    button { b ->
-                                        b.actionId(ActionIds.viewInBrowserButton)
-                                                .text(plainText("What's NRQL?"))
-                                                .url("https://docs.newrelic.com/docs/query-data/nrql-new-relic-query-language/getting-started/nrql-syntax-components-functions")
-                                    },
-                                    button { b ->
-                                        b.actionId(ActionIds.queryHistoryButton).text(plainText("Query History"))
-                                    }
-                            ))
-                        },
-                        input {
-                            it.blockId(BlockIds.inputQuery)
-                                    .label(plainText("Query (NRQL)"))
-                                    .element(plainTextInput { pti ->
-                                        pti.actionId(ActionIds.input)
-                                                .placeholder(plainText("Write an NRQL query here"))
-                                                .initialValue(queryToRun)
-                                                .multiline(true)
-                                    }).optional(false)
-                        }
-                ) + buildQueryResultBlocks(accountId, queryToRun, queryResponse))
-                .build()
+        return view {
+            it.type("modal")
+                    .callbackId(CallbackIds.queryModal)
+                    .submit(viewSubmit { vs -> vs.type("plain_text").text("Run") })
+                    .close(viewClose { vc -> vc.type("plain_text").text("Close") })
+                    .title(viewTitle { vt -> vt.type("plain_text").text("Insights Query Runner") })
+                    .blocks(asBlocks(
+                            actions { bs ->
+                                bs.elements(asElements(
+                                        button { b ->
+                                            b.actionId(ActionIds.viewInBrowserButton)
+                                                    .text(plainText("What's NRQL?"))
+                                                    .url("https://docs.newrelic.com/docs/query-data/nrql-new-relic-query-language/getting-started/nrql-syntax-components-functions")
+                                        },
+                                        button { b ->
+                                            b.actionId(ActionIds.queryHistoryButton).text(plainText("Query History"))
+                                        }
+                                ))
+                            },
+                            input { i ->
+                                i.blockId(BlockIds.inputQuery)
+                                        .label(plainText("Query (NRQL)"))
+                                        .element(plainTextInput { pti ->
+                                            pti.actionId(ActionIds.input)
+                                                    .placeholder(plainText("Write an NRQL query here"))
+                                                    .initialValue(queryToRun)
+                                                    .multiline(true)
+                                        }).optional(false)
+                            }
+                    ) + buildQueryResultBlocks(accountId, queryToRun, queryResponse))
+        }
     }
 
     private fun buildQueryResultBlocks(accountId: String?, query: String?, queryResponse: QueryResponse?): List<LayoutBlock> {
@@ -592,17 +587,17 @@ class SlackApp {
         val accessory: BlockElement? = if (options.isEmpty()) null else {
             radioButtons { it.actionId(ActionIds.queryRadioButton).options(options) }
         }
-        return View.builder()
-                .type("modal")
-                .callbackId(CallbackIds.queryHistoryModal)
-                .close(ViewClose.builder().type("plain_text").text("Close").build())
-                .title(ViewTitle.builder().type("plain_text").text("Insights Query History").build())
-                .blocks(listOf(section {
-                    it.text(markdownText { m ->
-                        m.text("Here is the list of the queries you recently ran. Select a query you'd like to run again.")
-                    }).accessory(accessory)
-                }))
-                .build()
+        return view {
+            it.type("modal")
+                    .callbackId(CallbackIds.queryHistoryModal)
+                    .close(viewClose { vc -> vc.type("plain_text").text("Close") })
+                    .title(viewTitle { vt -> vt.type("plain_text").text("Insights Query History") })
+                    .blocks(listOf(section { s ->
+                        s.text(markdownText { m ->
+                            m.text("Here is the list of the queries you recently ran. Select a query you'd like to run again.")
+                        }).accessory(accessory)
+                    }))
+        }
     }
 
 }
